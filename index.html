@@ -1,0 +1,422 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Private Wardrobe & Lookbook</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    body { background-color: #0f1115; color: #f3f4f6; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    .glass { background: rgba(23, 27, 34, 0.85); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.08); }
+    .active-tab { border-bottom: 2px solid #a855f7; color: #f3f4f6; font-weight: 600; }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col pb-20">
+
+
+  <!-- AUTH SCREEN (Shown if not logged in) -->
+  <div id="auth-screen" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#0f1115]">
+    <div class="glass w-full max-w-sm p-6 rounded-2xl shadow-2xl flex flex-col gap-4">
+      <div class="text-center">
+        <h1 class="text-2xl font-bold tracking-tight text-white">Private Wardrobe</h1>
+        <p class="text-xs text-gray-400 mt-1">Sign in with your private Supabase credentials</p>
+      </div>
+
+
+      <div id="auth-error" class="hidden p-3 rounded-lg bg-red-950/60 border border-red-500/40 text-xs text-red-200"></div>
+
+
+      <form id="login-form" class="flex flex-col gap-3">
+        <div>
+          <label class="text-xs text-gray-400 font-medium block mb-1">Email</label>
+          <input type="email" id="login-email" required class="w-full bg-[#1b2028] border border-gray-700 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-purple-500">
+        </div>
+        <div>
+          <label class="text-xs text-gray-400 font-medium block mb-1">Password</label>
+          <input type="password" id="login-password" required class="w-full bg-[#1b2028] border border-gray-700 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-purple-500">
+        </div>
+        <button type="submit" id="login-btn" class="w-full mt-2 bg-purple-600 hover:bg-purple-500 active:scale-[0.99] text-white font-medium py-2.5 rounded-lg text-sm transition">
+          Unlock Lookbook
+        </button>
+      </form>
+    </div>
+  </div>
+
+
+  <!-- MAIN APP (Hidden until authenticated) -->
+  <div id="app" class="hidden flex flex-col min-h-screen">
+    <!-- Header -->
+    <header class="glass sticky top-0 z-30 px-4 py-3 flex items-center justify-between">
+      <div class="flex items-center gap-2">
+        <span class="inline-block w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+        <span class="text-sm font-semibold tracking-wide text-white">Private Vault</span>
+      </div>
+      <button id="logout-btn" class="text-xs text-gray-400 hover:text-white px-2.5 py-1 rounded-md border border-gray-700">
+        Sign Out
+      </button>
+    </header>
+
+
+    <!-- Navigation Bar -->
+    <nav class="flex border-b border-gray-800 bg-[#12151c] px-2 text-xs text-gray-400">
+      <button onclick="switchTab('wardrobe')" id="tab-wardrobe" class="flex-1 py-3 text-center active-tab">Wardrobe</button>
+      <button onclick="switchTab('lookbook')" id="tab-lookbook" class="flex-1 py-3 text-center">Lookbook</button>
+      <button onclick="switchTab('stylist')" id="tab-stylist" class="flex-1 py-3 text-center">Canvas</button>
+    </nav>
+
+
+    <!-- TAB 1: WARDROBE ITEMS -->
+    <main id="view-wardrobe" class="p-4 flex flex-col gap-4 max-w-lg mx-auto w-full">
+      <div class="flex items-center justify-between">
+        <h2 class="text-base font-semibold text-white">My Items</h2>
+        <button onclick="openModal('add-item-modal')" class="text-xs bg-purple-600 hover:bg-purple-500 text-white font-medium px-3 py-1.5 rounded-lg shadow">
+          + Add Item
+        </button>
+      </div>
+
+
+      <div id="wardrobe-grid" class="grid grid-cols-2 gap-3">
+        <!-- Rendered dynamically -->
+      </div>
+    </main>
+
+
+    <!-- TAB 2: LOOKBOOK -->
+    <main id="view-lookbook" class="hidden p-4 flex flex-col gap-4 max-w-lg mx-auto w-full">
+      <div class="flex items-center justify-between">
+        <h2 class="text-base font-semibold text-white">Outfit Mirror Logs</h2>
+        <button onclick="openModal('add-look-modal')" class="text-xs bg-purple-600 hover:bg-purple-500 text-white font-medium px-3 py-1.5 rounded-lg shadow">
+          + Log Look
+        </button>
+      </div>
+
+
+      <div id="lookbook-list" class="flex flex-col gap-3">
+        <!-- Rendered dynamically -->
+      </div>
+    </main>
+
+
+    <!-- TAB 3: STYLIST CANVAS -->
+    <main id="view-stylist" class="hidden p-4 flex flex-col gap-4 max-w-lg mx-auto w-full">
+      <div class="glass p-4 rounded-xl flex flex-col gap-3">
+        <h3 class="text-sm font-semibold text-white">Outfit Canvas</h3>
+        <p class="text-xs text-gray-400">Select pieces to preview balance and proportions.</p>
+
+
+        <div class="flex flex-col gap-2 mt-2">
+          <div class="p-2.5 rounded-lg bg-[#181d24] border border-gray-700 flex justify-between items-center">
+            <span class="text-xs text-gray-400">Outerwear:</span>
+            <span id="canvas-outerwear" class="text-xs font-medium text-purple-300">Black Leather Bomber</span>
+          </div>
+          <div class="p-2.5 rounded-lg bg-[#181d24] border border-gray-700 flex justify-between items-center">
+            <span class="text-xs text-gray-400">Dress / Core:</span>
+            <span id="canvas-core" class="text-xs font-medium text-purple-300">Plum Velvet Tea Dress</span>
+          </div>
+          <div class="p-2.5 rounded-lg bg-[#181d24] border border-gray-700 flex justify-between items-center">
+            <span class="text-xs text-gray-400">Footwear:</span>
+            <span id="canvas-shoes" class="text-xs font-medium text-purple-300">High Doc Martens (Black)</span>
+          </div>
+        </div>
+
+
+        <div class="p-3 bg-purple-950/30 border border-purple-500/20 rounded-lg text-xs leading-relaxed text-purple-200">
+          <strong>Rule of Thirds:</strong> The cropped bomber hits at 1/3 height, allowing the 2/3 sweeping skirt hemline to create intentional vertical lines grounded by the heavy boot soles.
+        </div>
+      </div>
+    </main>
+  </div>
+
+
+  <!-- ADD ITEM MODAL -->
+  <div id="add-item-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80">
+    <div class="glass w-full max-w-sm p-5 rounded-2xl flex flex-col gap-3">
+      <div class="flex justify-between items-center">
+        <h3 class="text-sm font-bold text-white">Add Wardrobe Item</h3>
+        <button onclick="closeModal('add-item-modal')" class="text-gray-400 text-sm">✕</button>
+      </div>
+
+
+      <input type="text" id="item-name" placeholder="Item Name (e.g., Brown Knit Maxi)" class="w-full bg-[#1b2028] border border-gray-700 rounded-lg p-2 text-xs text-white">
+      
+      <select id="item-cat" class="w-full bg-[#1b2028] border border-gray-700 rounded-lg p-2 text-xs text-white">
+        <option value="Dresses">Dress / Main</option>
+        <option value="Outerwear">Outerwear / Jacket</option>
+        <option value="Footwear">Boots / Footwear</option>
+      </select>
+
+
+      <input type="file" id="item-file" accept="image/*" class="text-xs text-gray-400 file:mr-2 file:py-1 file:px-2 file:rounded-md file:border-0 file:bg-purple-600 file:text-white file:text-xs">
+
+
+      <button id="save-item-btn" onclick="saveItem()" class="w-full mt-2 bg-purple-600 hover:bg-purple-500 text-white font-medium py-2 rounded-lg text-xs">
+        Save to Vault
+      </button>
+    </div>
+  </div>
+
+
+  <!-- ADD LOOK MODAL -->
+  <div id="add-look-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80">
+    <div class="glass w-full max-w-sm p-5 rounded-2xl flex flex-col gap-3">
+      <div class="flex justify-between items-center">
+        <h3 class="text-sm font-bold text-white">Log Outfit on Me</h3>
+        <button onclick="closeModal('add-look-modal')" class="text-gray-400 text-sm">✕</button>
+      </div>
+
+
+      <input type="text" id="look-occasion" placeholder="Occasion / Context (e.g., RSC Stratford)" class="w-full bg-[#1b2028] border border-gray-700 rounded-lg p-2 text-xs text-white">
+      <textarea id="look-notes" placeholder="Styling, comfort & fit notes..." class="w-full bg-[#1b2028] border border-gray-700 rounded-lg p-2 text-xs text-white h-16"></textarea>
+
+
+      <input type="file" id="look-file" accept="image/*" class="text-xs text-gray-400 file:mr-2 file:py-1 file:px-2 file:rounded-md file:border-0 file:bg-purple-600 file:text-white file:text-xs">
+
+
+      <button id="save-look-btn" onclick="saveLook()" class="w-full mt-2 bg-purple-600 hover:bg-purple-500 text-white font-medium py-2 rounded-lg text-xs">
+        Upload Private Selfie
+      </button>
+    </div>
+  </div>
+
+
+  <script>
+    const SUPABASE_URL = "https://clwzoujhcougrntcdito.supabase.co";
+    const SUPABASE_ANON = "sb_publishable_1HlDJ6sXOvidayteckCkYA_LFXx2ZeS";
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+
+
+    // Check Session on startup
+    window.addEventListener("DOMContentLoaded", async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        showApp();
+      }
+    });
+
+
+    // Login Form Handler
+    document.getElementById("login-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const email = document.getElementById("login-email").value.trim();
+      const password = document.getElementById("login-password").value;
+      const errBox = document.getElementById("auth-error");
+      const btn = document.getElementById("login-btn");
+
+
+      btn.disabled = true;
+      btn.textContent = "Authenticating...";
+      errBox.classList.add("hidden");
+
+
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+
+
+      btn.disabled = false;
+      btn.textContent = "Unlock Lookbook";
+
+
+      if (error) {
+        errBox.textContent = error.message;
+        errBox.classList.remove("hidden");
+      } else {
+        showApp();
+      }
+    });
+
+
+    // Logout
+    document.getElementById("logout-btn").addEventListener("click", async () => {
+      await supabase.auth.signOut();
+      document.getElementById("app").classList.add("hidden");
+      document.getElementById("auth-screen").classList.remove("hidden");
+    });
+
+
+    function showApp() {
+      document.getElementById("auth-screen").classList.add("hidden");
+      document.getElementById("app").classList.remove("hidden");
+      loadWardrobe();
+      loadLookbook();
+    }
+
+
+    // Tab Switching
+    function switchTab(tab) {
+      ['wardrobe', 'lookbook', 'stylist'].forEach(t => {
+        document.getElementById(`view-${t}`).classList.toggle('hidden', t !== tab);
+        document.getElementById(`tab-${t}`).classList.toggle('active-tab', t === tab);
+      });
+    }
+
+
+    function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
+    function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+
+
+    // Upload Helper for Private Bucket
+    async function uploadPrivateImage(file) {
+      const ext = file.name.split('.').pop();
+      const path = `${Date.now()}-${Math.random().toString(36).substring(2)}.${ext}`;
+      const { error } = await supabase.storage.from('wardrobe-photos').upload(path, file);
+      if (error) throw error;
+      return path;
+    }
+
+
+    // Get Time-Limited Signed URL for Private Display
+    async function getSignedImageUrl(path) {
+      if (!path) return '';
+      const { data, error } = await supabase.storage.from('wardrobe-photos').createSignedUrl(path, 3600);
+      return error ? '' : data.signedUrl;
+    }
+
+
+    // Load Wardrobe
+    async function loadWardrobe() {
+      const grid = document.getElementById("wardrobe-grid");
+      grid.innerHTML = '<p class="text-xs text-gray-500 col-span-2 text-center py-4">Loading wardrobe...</p>';
+      
+      const { data: items, error } = await supabase.from('wardrobe_items').select('*').order('created_at', { ascending: false });
+      if (error || !items || items.length === 0) {
+        grid.innerHTML = '<p class="text-xs text-gray-500 col-span-2 text-center py-4">No items saved yet. Tap "+ Add Item" above.</p>';
+        return;
+      }
+
+
+      grid.innerHTML = '';
+      for (const item of items) {
+        let imgUrl = 'https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?auto=format&fit=crop&w=400&q=80';
+        if (item.image) {
+          const signed = await getSignedImageUrl(item.image);
+          if (signed) imgUrl = signed;
+        }
+
+
+        const card = document.createElement('div');
+        card.className = "glass rounded-xl overflow-hidden flex flex-col";
+        card.innerHTML = `
+          <img src="${imgUrl}" class="h-36 w-full object-cover bg-gray-900" />
+          <div class="p-2.5 flex flex-col gap-1">
+            <span class="text-xs font-semibold text-white truncate">${item.name}</span>
+            <span class="text-[10px] text-purple-400 uppercase tracking-wider">${item.category || 'Wardrobe'}</span>
+          </div>
+        `;
+        grid.appendChild(card);
+      }
+    }
+
+
+    // Save New Item
+    async function saveItem() {
+      const name = document.getElementById("item-name").value.trim();
+      const cat = document.getElementById("item-cat").value;
+      const fileInput = document.getElementById("item-file");
+      const btn = document.getElementById("save-item-btn");
+
+
+      if (!name) return alert("Please provide an item name.");
+      btn.disabled = true;
+      btn.textContent = "Securing & Uploading...";
+
+
+      let imagePath = null;
+      try {
+        if (fileInput.files.length > 0) {
+          imagePath = await uploadPrivateImage(fileInput.files[0]);
+        }
+
+
+        await supabase.from('wardrobe_items').insert([{
+          id: 'item_' + Date.now(),
+          name: name,
+          category: cat,
+          image: imagePath
+        }]);
+
+
+        closeModal("add-item-modal");
+        loadWardrobe();
+      } catch (err) {
+        alert("Upload failed: " + err.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Save to Vault";
+      }
+    }
+
+
+    // Load Lookbook
+    async function loadLookbook() {
+      const list = document.getElementById("lookbook-list");
+      list.innerHTML = '<p class="text-xs text-gray-500 text-center py-4">Loading selfies...</p>';
+
+
+      const { data: looks, error } = await supabase.from('outfit_logs').select('*').order('created_at', { ascending: false });
+      if (error || !looks || looks.length === 0) {
+        list.innerHTML = '<p class="text-xs text-gray-500 text-center py-4">No mirror selfies logged yet.</p>';
+        return;
+      }
+
+
+      list.innerHTML = '';
+      for (const look of looks) {
+        let imgUrl = '';
+        if (look.image) {
+          imgUrl = await getSignedImageUrl(look.image);
+        }
+
+
+        const card = document.createElement('div');
+        card.className = "glass rounded-xl p-3 flex gap-3";
+        card.innerHTML = `
+          ${imgUrl ? `<img src="${imgUrl}" class="w-20 h-24 object-cover rounded-lg bg-gray-900 flex-shrink-0" />` : ''}
+          <div class="flex flex-col gap-1 flex-1">
+            <span class="text-xs font-semibold text-white">${look.occasion || 'Outfit'}</span>
+            <p class="text-[11px] text-gray-300 line-clamp-3">${look.notes || 'No notes added.'}</p>
+          </div>
+        `;
+        list.appendChild(card);
+      }
+    }
+
+
+    // Save Look
+    async function saveLook() {
+      const occasion = document.getElementById("look-occasion").value.trim();
+      const notes = document.getElementById("look-notes").value.trim();
+      const fileInput = document.getElementById("look-file");
+      const btn = document.getElementById("save-look-btn");
+
+
+      btn.disabled = true;
+      btn.textContent = "Encrypting & Uploading...";
+
+
+      let imagePath = null;
+      try {
+        if (fileInput.files.length > 0) {
+          imagePath = await uploadPrivateImage(fileInput.files[0]);
+        }
+
+
+        await supabase.from('outfit_logs').insert([{
+          id: 'look_' + Date.now(),
+          occasion: occasion || 'Daily Outfit',
+          notes: notes,
+          image: imagePath
+        }]);
+
+
+        closeModal("add-look-modal");
+        loadLookbook();
+      } catch (err) {
+        alert("Upload failed: " + err.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Upload Private Selfie";
+      }
+    }
+  </script>
+</body>
+</html>
