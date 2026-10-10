@@ -57,7 +57,7 @@
     <nav class="flex border-b border-gray-800 bg-[#12151c] px-2 text-xs text-gray-400">
       <button type="button" onclick="switchTab('wardrobe')" id="tab-wardrobe" class="flex-1 py-3 text-center active-tab">Wardrobe</button>
       <button type="button" onclick="switchTab('lookbook')" id="tab-lookbook" class="flex-1 py-3 text-center">Lookbook</button>
-      <button type="button" onclick="switchTab('stylist')" id="tab-stylist" class="flex-1 py-3 text-center">Canvas</button>
+      <button type="button" onclick="switchTab('stylist')" id="tab-stylist" class="flex-1 py-3 text-center">Stylist AI</button>
     </nav>
 
     <!-- TAB 1: WARDROBE -->
@@ -82,25 +82,28 @@
       <div id="lookbook-list" class="flex flex-col gap-3"></div>
     </main>
 
-    <!-- TAB 3: CANVAS -->
+    <!-- TAB 3: STYLIST AI -->
     <main id="view-stylist" class="hidden p-4 flex flex-col gap-4 max-w-lg mx-auto w-full">
       <div class="glass p-4 rounded-xl flex flex-col gap-3">
-        <h3 class="text-sm font-semibold text-white">Outfit Canvas</h3>
-        <p class="text-xs text-gray-400">Select pieces to preview balance and proportions.</p>
-        <div class="flex flex-col gap-2 mt-2">
-          <div class="p-2.5 rounded-lg bg-[#181d24] border border-gray-700 flex justify-between items-center">
-            <span class="text-xs text-gray-400">Outerwear:</span>
-            <span class="text-xs font-medium text-purple-300">Black Leather Bomber</span>
-          </div>
-          <div class="p-2.5 rounded-lg bg-[#181d24] border border-gray-700 flex justify-between items-center">
-            <span class="text-xs text-gray-400">Dress / Core:</span>
-            <span class="text-xs font-medium text-purple-300">Plum Velvet Tea Dress</span>
-          </div>
-          <div class="p-2.5 rounded-lg bg-[#181d24] border border-gray-700 flex justify-between items-center">
-            <span class="text-xs text-gray-400">Footwear:</span>
-            <span class="text-xs font-medium text-purple-300">High Doc Martens (Black)</span>
-          </div>
+        <div>
+          <h3 class="text-sm font-semibold text-white">Personal AI Stylist</h3>
+          <p class="text-xs text-gray-400 mt-0.5">Ask for combinations tailored to your day, weather, or occasion.</p>
         </div>
+
+        <div>
+          <label class="text-[11px] text-gray-400 block mb-1">Occasion / Vibe / Weather</label>
+          <input type="text" id="stylist-prompt" placeholder="e.g. Rainy afternoon, dinner, smart meeting..." class="w-full bg-[#1b2028] border border-gray-700 rounded-lg p-2.5 text-xs text-white focus:outline-none focus:border-purple-500">
+        </div>
+
+        <button type="button" id="stylist-btn" onclick="consultStylist()" class="w-full bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-medium py-2.5 rounded-lg text-xs transition">
+          Generate Outfit Choice
+        </button>
+      </div>
+
+      <div id="stylist-result-card" class="hidden glass p-4 rounded-xl flex flex-col gap-3 border border-purple-500/30">
+        <h4 class="text-xs uppercase tracking-wider text-purple-400 font-bold">Stylist Recommendation</h4>
+        <div id="stylist-outfit-items" class="flex flex-col gap-2"></div>
+        <div class="p-3 bg-purple-950/40 border border-purple-500/20 rounded-lg text-xs leading-relaxed text-purple-200" id="stylist-notes"></div>
       </div>
     </main>
   </div>
@@ -117,6 +120,8 @@
         <option value="Dresses">Dress / Main</option>
         <option value="Outerwear">Outerwear / Jacket</option>
         <option value="Footwear">Boots / Footwear</option>
+        <option value="Tops">Top / Knitwear</option>
+        <option value="Bottoms">Trousers / Skirt</option>
       </select>
       <input type="file" id="item-file" accept="image/*" class="text-xs text-gray-400 file:mr-2 file:py-1 file:px-2 file:rounded-md file:border-0 file:bg-purple-600 file:text-white file:text-xs">
       <button type="button" id="save-item-btn" onclick="saveItem()" class="w-full mt-2 bg-purple-600 hover:bg-purple-500 text-white font-medium py-2 rounded-lg text-xs">
@@ -144,7 +149,8 @@
   <script>
     const SUPABASE_URL = "https://clwzoujhcougrntcdito.supabase.co";
     const SUPABASE_ANON = "sb_publishable_1HlDJ6sXOvidayteckCkYA_LFXx2ZeS";
-    
+    const GEMINI_API_KEY = "AQ.Ab8RN6JZORrseIqlsiJyrymulvHxJZwkutXztFXtynX5tIr-_w";
+
     let sbClient = null;
 
     function getClient() {
@@ -152,7 +158,7 @@
         if (window.supabase && window.supabase.createClient) {
           sbClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
         } else {
-          throw new Error("Supabase SDK is still loading or blocked. Please refresh.");
+          throw new Error("Supabase SDK is still loading.");
         }
       }
       return sbClient;
@@ -377,6 +383,85 @@
       } finally {
         btn.disabled = false;
         btn.textContent = "Upload Private Selfie";
+      }
+    }
+
+    // AI STYLIST INTEGRATION
+    async function consultStylist() {
+      const btn = document.getElementById("stylist-btn");
+      const promptInput = document.getElementById("stylist-prompt").value.trim();
+      const resultCard = document.getElementById("stylist-result-card");
+      const itemsContainer = document.getElementById("stylist-outfit-items");
+      const notesEl = document.getElementById("stylist-notes");
+
+      btn.disabled = true;
+      btn.textContent = "Stylist is thinking...";
+
+      try {
+        const client = getClient();
+        const { data: items, error } = await client.from('wardrobe_items').select('name, category');
+        if (error) throw error;
+
+        if (!items || items.length === 0) {
+          alert("Your wardrobe is empty! Add a few items under the 'Wardrobe' tab first so the stylist has pieces to choose from.");
+          btn.disabled = false;
+          btn.textContent = "Generate Outfit Choice";
+          return;
+        }
+
+        const wardrobeList = items.map(i => `- ${i.name} (${i.category})`).join('\n');
+        const userPrompt = promptInput || "Create a stylish, balanced outfit for today.";
+
+        const systemInstruction = `You are an expert personal fashion stylist. 
+Given the user's available wardrobe inventory, pick the best outfit combination for their request.
+Return your answer ONLY as a JSON object with this exact structure:
+{
+  "selected_items": [
+    {"category": "Outerwear / Jacket", "item": "Exact item name"},
+    {"category": "Dress / Core", "item": "Exact item name"},
+    {"category": "Footwear", "item": "Exact item name"}
+  ],
+  "reasoning": "A concise, sharp 2-sentence explanation of why these pieces work together regarding proportions, color balance, and the requested occasion."
+}
+Only pick items that actually exist in the inventory.`;
+
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{
+              parts: [{
+                text: `${systemInstruction}\n\nInventory:\n${wardrobeList}\n\nRequest:\n${userPrompt}`
+              }]
+            }]
+          })
+        });
+
+        const data = await response.json();
+        if (data.error) throw new Error(data.error.message);
+
+        let replyText = data.candidates[0].content.parts[0].text;
+        replyText = replyText.replace(/```json/g, '').replace(/```/g, '').trim();
+        const outfit = JSON.parse(replyText);
+
+        itemsContainer.innerHTML = '';
+        outfit.selected_items.forEach(piece => {
+          const row = document.createElement('div');
+          row.className = "p-2.5 rounded-lg bg-[#181d24] border border-gray-700 flex justify-between items-center";
+          row.innerHTML = `
+            <span class="text-xs text-gray-400">${piece.category}:</span>
+            <span class="text-xs font-medium text-purple-300">${piece.item}</span>
+          `;
+          itemsContainer.appendChild(row);
+        });
+
+        notesEl.innerHTML = `<strong>Stylist Note:</strong> ${outfit.reasoning}`;
+        resultCard.classList.remove("hidden");
+      } catch (err) {
+        alert("Stylist Error: " + err.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Generate Outfit Choice";
       }
     }
   </script>
